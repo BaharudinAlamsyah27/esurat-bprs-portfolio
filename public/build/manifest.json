@@ -1,0 +1,22 @@
+{
+  "resources/css/app.css": {
+    "file": "assets/app-Vza6cXJR.css",
+    "src": "resources/css/app.css",
+    "isEntry": true
+  },
+  "resources/css/filament/admin/theme.css": {
+    "file": "assets/theme-D3Kho5LU.css",
+    "src": "resources/css/filament/admin/theme.css",
+    "isEntry": true
+  },
+  "resources/fonts/PlusJakartaSans/PlusJakartaSans-Variable.ttf": {
+    "file": "assets/PlusJakartaSans-Variable-BZU_LQer.ttf",
+    "src": "resources/fonts/PlusJakartaSans/PlusJakartaSans-Variable.ttf"
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-DMsN-rLE.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true
+  }
+}

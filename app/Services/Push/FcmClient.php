@@ -1,0 +1,175 @@
+<?php
+
+namespace App\Services\Push;
+
+use App\Models\DeviceToken;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+class FcmClient
+{
+    /**
+     * Send push notification to a device token using Firebase Cloud Messaging HTTP v1.
+     *
+     * @param  array{title: string, body: string}  $notification
+     * @param  array<string, string>  $data
+     */
+    public function send(DeviceToken $deviceToken, array $notification, array $data = []): bool
+    {
+        $enabled = (bool) config('services.fcm.enabled', false);
+        $projectId = (string) config('services.fcm.project_id');
+        $credentialsPath = base_path((string) config('services.fcm.credentials'));
+
+        if (! $enabled) {
+            Log::warning('FCM push skipped (FCM is disabled)');
+
+            return true;
+        }
+
+        if ($projectId === '') {
+            Log::error('FCM push skipped (Firebase project ID is missing)');
+
+            return false;
+        }
+
+        if (! is_file($credentialsPath) || ! is_readable($credentialsPath)) {
+            Log::error('FCM push skipped (server credential file is missing or unreadable)');
+
+            return false;
+        }
+
+        $accessToken = $this->getAccessToken($credentialsPath);
+
+        if (! $accessToken) {
+            Log::warning('FCM push failed to obtain access token');
+
+            return false;
+        }
+
+        $payload = [
+            'message' => [
+                'token' => $deviceToken->token,
+                'notification' => [
+                    'title' => $notification['title'],
+                    'body' => $notification['body'],
+                ],
+                'data' => $data,
+                'android' => [
+                    'priority' => 'high',
+                    'ttl' => '86400s',
+                    'notification' => [
+                        'channel_id' => 'disposisi_high_priority',
+                    ],
+                ],
+            ],
+        ];
+
+        try {
+            $response = Http::connectTimeout(3)->timeout(8)->withToken($accessToken)
+                ->post("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send", $payload);
+
+            if ($response->successful()) {
+                $deviceToken->update(['last_used_at' => now()]);
+                Log::info('FCM push accepted by Firebase', ['device_id' => $deviceToken->id]);
+
+                return true;
+            }
+
+            $error = $response->json('error.status');
+
+            if (in_array($error, ['UNREGISTERED', 'INVALID_ARGUMENT'], true)) {
+                Log::info('FCM invalid/unregistered token pruned', ['device_id' => $deviceToken->id]);
+                $deviceToken->delete();
+            } else {
+                Log::warning('FCM message send error', [
+                    'status' => $response->status(),
+                    'error_status' => $error,
+                ]);
+            }
+
+            return false;
+        } catch (\Throwable $e) {
+            Log::error('FCM push exception: '.$e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
+     * Generate an OAuth2 access token from service account credentials JSON.
+     */
+    protected function getAccessToken(string $credentialsPath): ?string
+    {
+        $cacheKey = 'firebase.messaging.access_token.'.hash(
+            'sha256',
+            (string) config('services.fcm.project_id')
+        );
+        try {
+            $cachedToken = Cache::get($cacheKey);
+        } catch (\Throwable) {
+            $cachedToken = null;
+        }
+        if (is_string($cachedToken) && $cachedToken !== '') {
+            return $cachedToken;
+        }
+
+        try {
+            $contents = file_get_contents($credentialsPath);
+            if (! $contents) {
+                return null;
+            }
+
+            $key = json_decode($contents, true);
+            if (! is_array($key) || empty($key['client_email']) || empty($key['private_key'])) {
+                return null;
+            }
+
+            $now = time();
+            $header = rtrim(strtr(base64_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT']) ?: ''), '+/', '-_'), '=');
+            $claim = rtrim(strtr(base64_encode(json_encode([
+                'iss' => $key['client_email'],
+                'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
+                'aud' => 'https://oauth2.googleapis.com/token',
+                'iat' => $now,
+                'exp' => $now + 3600,
+            ]) ?: ''), '+/', '-_'), '=');
+
+            $signature = '';
+            $privateKey = openssl_pkey_get_private($key['private_key']);
+            if (! $privateKey) {
+                return null;
+            }
+
+            openssl_sign("{$header}.{$claim}", $signature, $privateKey, OPENSSL_ALGO_SHA256);
+            $jwt = "{$header}.{$claim}.".rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
+
+            $res = Http::connectTimeout(3)->timeout(8)->asForm()->post('https://oauth2.googleapis.com/token', [
+                'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                'assertion' => $jwt,
+            ]);
+
+            $accessToken = $res->json('access_token');
+            if (! is_string($accessToken) || $accessToken === '') {
+                return null;
+            }
+
+            $expiresIn = (int) $res->json('expires_in', 3600);
+            try {
+                Cache::put(
+                    $cacheKey,
+                    $accessToken,
+                    now()->addSeconds(max(60, $expiresIn - 60))
+                );
+            } catch (\Throwable) {
+                // Cache is an optimization; the newly generated token is usable.
+            }
+
+            return $accessToken;
+        } catch (\Throwable $e) {
+            Log::error('Failed to generate Google access token: '.$e->getMessage());
+
+            return null;
+        }
+    }
+}
