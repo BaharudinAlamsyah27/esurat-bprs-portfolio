@@ -21,7 +21,7 @@
     "env": {
         "APP_NAME": "E-Surat BPRS Sragen (Demo)",
         "APP_ENV": "production",
-        "APP_DEBUG": "false",
+        "APP_DEBUG": "true",
         "APP_LOCALE": "id",
         "APP_FALLBACK_LOCALE": "id",
         "APP_TIMEZONE": "Asia/Jakarta",
