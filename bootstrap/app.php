@@ -19,7 +19,5 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(SecurityHeaders::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->report(function (Throwable $e): void {
-            error_log('ESURAT_ERR: '.$e::class.': '.$e->getMessage().' @ '.$e->getFile().':'.$e->getLine());
-        });
+        //
     })->create();

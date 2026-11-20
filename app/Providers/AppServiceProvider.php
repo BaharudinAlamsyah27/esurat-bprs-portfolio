@@ -24,11 +24,13 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use PDO;
 use Spatie\Activitylog\Models\Activity;
 
 class AppServiceProvider extends ServiceProvider
@@ -48,6 +50,37 @@ class AppServiceProvider extends ServiceProvider
     {
         if (isset($_ENV['VERCEL']) || isset($_SERVER['VERCEL']) || env('VERCEL')) {
             URL::forceScheme('https');
+        }
+
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            $pdo = DB::connection()->getPdo();
+            if ($pdo instanceof PDO && method_exists($pdo, 'sqliteCreateFunction')) {
+                $pdo->sqliteCreateFunction('json_extract', static function (?string $json, string $path): mixed {
+                    if ($json === null) {
+                        return null;
+                    }
+
+                    $data = json_decode($json, true);
+                    if (! is_array($data)) {
+                        return null;
+                    }
+
+                    $segments = array_filter(
+                        explode('.', str_replace(['$', '"'], '', $path)),
+                        static fn (string $segment): bool => $segment !== ''
+                    );
+
+                    $current = $data;
+                    foreach ($segments as $segment) {
+                        if (! is_array($current) || ! array_key_exists($segment, $current)) {
+                            return null;
+                        }
+                        $current = $current[$segment];
+                    }
+
+                    return is_array($current) ? json_encode($current) : $current;
+                }, 2);
+            }
         }
 
         Password::defaults(fn (): Password => Password::min(10)->mixedCase()->numbers());
