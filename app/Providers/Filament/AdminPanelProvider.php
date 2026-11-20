@@ -64,7 +64,7 @@ class AdminPanelProvider extends PanelProvider
             ->sidebarFullyCollapsibleOnDesktop()
             ->sidebarWidth('17rem')
             ->databaseNotifications()
-            ->databaseNotificationsPolling('30s')
+            ->databaseNotificationsPolling(null)
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->navigationGroups([
                 'DATA MASTER',
